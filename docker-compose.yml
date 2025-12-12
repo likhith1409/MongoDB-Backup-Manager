@@ -41,9 +41,7 @@ services:
     volumes:
       - backup-data:/app/data
       - backup-logs:/app/logs
-    depends_on:
-      - mongo
-      - ftp
+
     restart: unless-stopped
     networks:
       - backup-network
