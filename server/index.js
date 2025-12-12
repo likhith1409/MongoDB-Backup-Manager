@@ -49,99 +49,100 @@ async function initializeServices() {
   }
 }
 
-// Middleware
-app.use(helmet({
-  contentSecurityPolicy: false, // Disable for simplicity, enable in production
-}));
-app.use(compression());
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+function configureApp(appInstance, isUiServer = false) {
+  // Middleware
+  appInstance.use(helmet({
+    contentSecurityPolicy: false,
+  }));
+  appInstance.use(compression());
+  appInstance.use(cors());
+  appInstance.use(express.json());
+  appInstance.use(express.urlencoded({ extended: true }));
 
-// Request logging
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
-  next();
-});
+  // Request logging
+  appInstance.use((req, res, next) => {
+    // Cleaner logging: don't log every static file asset
+    if (!req.path.startsWith('/assets/')) {
+        console.log(`[${isUiServer ? 'UI' : 'API'}] ${req.method} ${req.path}`);
+    }
+    next();
+  });
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/health', healthRoutes);
+  // API Routes (Mounted on both)
+  appInstance.use('/api/auth', authRoutes);
+  appInstance.use('/health', healthRoutes);
+  appInstance.use('/api/backup', authMiddleware, backupRoutes);
+  appInstance.use('/api/backups', authMiddleware, backupRoutes);
+  appInstance.use('/api/settings', authMiddleware, settingsRoutes);
+  appInstance.use('/api/logs', authMiddleware, logsRoutes);
+  appInstance.use('/api/restore', authMiddleware, restoreRoutes);
 
-// Protected routes
-app.use('/api/backup', authMiddleware, backupRoutes);
-app.use('/api/backups', authMiddleware, backupRoutes);
-app.use('/api/settings', authMiddleware, settingsRoutes);
-app.use('/api/logs', authMiddleware, logsRoutes);
-app.use('/api/restore', authMiddleware, restoreRoutes);
+  // Serve frontend routes (ONLY for UI Server in Production)
+  if (isUiServer && process.env.NODE_ENV === 'production') {
+    const clientBuildPath = path.join(__dirname, '..', 'client', 'dist');
+    appInstance.use(express.static(clientBuildPath));
+    appInstance.get('*', (req, res) => {
+      res.sendFile(path.join(clientBuildPath, 'index.html'));
+    });
+  } else if (!isUiServer) {
+     // For API server, 404 for unknown non-API routes
+     appInstance.use('/api/*', (req, res) => {
+        res.status(404).json({ success: false, message: 'API endpoint not found' });
+     });
+     appInstance.get('/', (req, res) => {
+        res.json({ message: 'MongoDB Backup Manager API is running. Access UI at port 5551.' });
+     });
+  }
 
-// Serve frontend in production
-if (process.env.NODE_ENV === 'production') {
-  const clientBuildPath = path.join(__dirname, '..', 'client', 'dist');
-  
-  app.use(express.static(clientBuildPath));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'index.html'));
+  // Error handling
+  appInstance.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(err.status || 500).json({
+      success: false,
+      message: err.message || 'Internal server error'
+    });
   });
 }
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal server error'
-  });
-});
-
-// 404 handler for API routes
-app.use('/api/*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'API endpoint not found'
-  });
-});
-
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  
-  await ScheduleService.stopSchedule();
-  await LogService.log('info', 'MongoDB Backup Manager stopped');
-  
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  
-  await ScheduleService.stopSchedule();
-  await LogService.log('info', 'MongoDB Backup Manager stopped');
-  
-  process.exit(0);
-});
+const shutdown = async () => {
+    console.log('Shutting down gracefully...');
+    await ScheduleService.stopSchedule();
+    await LogService.log('info', 'MongoDB Backup Manager stopped');
+    process.exit(0);
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 // Start server
 async function startServer() {
   await initializeServices();
   
-  // URL for the UI (Client)
-  const CLIENT_PORT = 5551;
+  // 1. Main API Server (5552)
+  const apiApp = express();
+  configureApp(apiApp, false);
   
-  // Start the main server (API + Static files if configured)
-  app.listen(PORT, HOST, () => {
-    // Start a second server specifically for the UI port to match local dev experience
-    // This allows accessing http://localhost:5551 even in production/docker
-    app.listen(CLIENT_PORT, HOST, () => {
-      console.log(`\n╔══════════════════════════════════════════════════════════════════╗`);
-      console.log(`║   MongoDB Backup Manager v1.0.0                                  ║`);
-      console.log(`╠══════════════════════════════════════════════════════════════════╣`);
-      console.log(`║   UI:       http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${CLIENT_PORT}                                  ║`);
-      console.log(`║   API:      http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}                                  ║`);
-      console.log(`╚══════════════════════════════════════════════════════════════════╝\n`);
-    });
+  apiApp.listen(PORT, HOST, () => {
+    console.log(`\n╔══════════════════════════════════════════════════════════════════╗`);
+    console.log(`║   MongoDB Backup Manager v1.0.0                                  ║`);
+    console.log(`╠══════════════════════════════════════════════════════════════════╣`);
+    console.log(`║   API Server: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}                            ║`);
+
+    // 2. UI Server (5551) - Only in Production
+    // In dev, Vite handles the UI on 5551
+    if (process.env.NODE_ENV === 'production') {
+        const UI_PORT = 5551;
+        const uiApp = express();
+        configureApp(uiApp, true);
+        
+        uiApp.listen(UI_PORT, HOST, () => {
+            console.log(`║   UI Server:  http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${UI_PORT}                            ║`);
+            console.log(`╚══════════════════════════════════════════════════════════════════╝\n`);
+        });
+    } else {
+        console.log(`║   UI Dev:     http://localhost:5551 (Managed by Vite)            ║`);
+        console.log(`╚══════════════════════════════════════════════════════════════════╝\n`);
+    }
   });
 }
 
