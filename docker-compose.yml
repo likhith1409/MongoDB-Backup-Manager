@@ -23,6 +23,7 @@ services:
     container_name: mongodb-backup-manager
     ports:
       - "5552:5552"
+      - "5551:5552"
     environment:
       - PORT=5552
       - HOST=0.0.0.0
