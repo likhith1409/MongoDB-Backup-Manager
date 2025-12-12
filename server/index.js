@@ -127,13 +127,21 @@ process.on('SIGINT', async () => {
 async function startServer() {
   await initializeServices();
   
+  // URL for the UI (Client)
+  const CLIENT_PORT = 5551;
+  
+  // Start the main server (API + Static files if configured)
   app.listen(PORT, HOST, () => {
-    console.log(`\n╔══════════════════════════════════════════════════════════════════╗`);
-    console.log(`║   MongoDB Backup Manager v1.0.0                                  ║`);
-    console.log(`╠══════════════════════════════════════════════════════════════════╣`);
-    console.log(`║   Local:    http://localhost:${PORT}                               ║`);
-    console.log(`║   Network:  http://${HOST}:${PORT}                                  ║`);
-    console.log(`╚══════════════════════════════════════════════════════════════════╝\n`);
+    // Start a second server specifically for the UI port to match local dev experience
+    // This allows accessing http://localhost:5551 even in production/docker
+    app.listen(CLIENT_PORT, HOST, () => {
+      console.log(`\n╔══════════════════════════════════════════════════════════════════╗`);
+      console.log(`║   MongoDB Backup Manager v1.0.0                                  ║`);
+      console.log(`╠══════════════════════════════════════════════════════════════════╣`);
+      console.log(`║   UI:       http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${CLIENT_PORT}                                  ║`);
+      console.log(`║   API:      http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}                                  ║`);
+      console.log(`╚══════════════════════════════════════════════════════════════════╝\n`);
+    });
   });
 }
 

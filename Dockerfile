@@ -45,7 +45,7 @@ RUN mkdir -p /app/data/backups /app/logs
 ENV NODE_ENV=production
 
 # Expose port
-EXPOSE 5552
+EXPOSE 5552 5551
 
 # Start server
 CMD ["node", "index.js"]
