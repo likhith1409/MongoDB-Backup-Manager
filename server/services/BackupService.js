@@ -788,9 +788,16 @@ class BackupService {
 
         // 3. Run mongorestore --dryRun
         // We use --dryRun --verbose to see what it WOULD restore
+        // NOTE: mongorestore --dryRun still needs a MongoDB connection to validate the restore
         const settings = await SettingsService.getAll();
+        const mongoUrl = settings.mongoUrl;
+        
+        if (!mongoUrl) {
+            throw new Error('MongoDB URL not configured. Please configure MongoDB settings first.');
+        }
         
         const args = [
+            `--uri=${mongoUrl}`,
             `--archive=${inspectPath}`,
             '--gzip',
             '--dryRun',
