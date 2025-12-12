@@ -31,15 +31,6 @@ services:
       - ADMIN_USER=admin
       - ADMIN_PASS=admin
       - JWT_SECRET=change_this_jwt_secret_to_something_random_and_secure
-      # MongoDB connection
-      - MONGO_URL=mongodb://mongo:27017/testdb
-      # FTP settings
-      - FTP_HOST=ftp
-      - FTP_PORT=21
-      - FTP_USER=ftpuser
-      - FTP_PASSWORD=ftppass
-      - FTP_BASE_PATH=/backups
-      - FTP_ENABLED=true
       # Backup settings
       - KEEP_LOCAL_BACKUPS=true
       - KEEP_LAST_N_BACKUPS=30
@@ -57,42 +48,6 @@ services:
     networks:
       - backup-network
 
-  # ---------------------------------------------------------------------------
-  # MongoDB (Development/Testing Only)
-  # ---------------------------------------------------------------------------
-  # Remove this service in production and point MONGO_URL to your actual MongoDB
-  mongo:
-    image: mongo:7
-    container_name: mongodb-backup-test
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-    restart: unless-stopped
-    networks:
-      - backup-network
-
-  # ---------------------------------------------------------------------------
-  # FTP Server (Development/Testing Only)
-  # ---------------------------------------------------------------------------
-  # Remove this service in production and configure FTP_* vars for your FTP server
-  ftp:
-    image: fauria/vsftpd
-    container_name: ftp-backup-server
-    ports:
-      - "21:21"
-      - "21100-21110:21100-21110"
-    environment:
-      - FTP_USER=ftpuser
-      - FTP_PASS=ftppass
-      - PASV_ADDRESS=127.0.0.1
-      - PASV_MIN_PORT=21100
-      - PASV_MAX_PORT=21110
-    volumes:
-      - ftp-data:/home/vsftpd
-    restart: unless-stopped
-    networks:
-      - backup-network
 
 # -----------------------------------------------------------------------------
 # Volumes
@@ -102,10 +57,7 @@ volumes:
     name: mongodb-backup-data
   backup-logs:
     name: mongodb-backup-logs
-  mongo-data:
-    name: mongodb-backup-mongo
-  ftp-data:
-    name: mongodb-backup-ftp
+
 
 # -----------------------------------------------------------------------------
 # Networks
