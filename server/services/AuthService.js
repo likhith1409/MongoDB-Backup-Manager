@@ -191,13 +191,6 @@ class AuthService {
 // Export singleton instance
 const authService = new AuthService();
 
-// Initialize on module load
-(async () => {
-  try {
-    await authService.init();
-  } catch (error) {
-    console.error('Auth service initialization failed:', error);
-  }
-})();
+
 
 module.exports = authService;
