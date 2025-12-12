@@ -1,0 +1,116 @@
+version: '3.8'
+
+# =============================================================================
+# MongoDB Backup Manager - Docker Compose Configuration
+# =============================================================================
+# This configuration sets up:
+#   - Main application (backup manager)
+#   - MongoDB instance (for testing/development)
+#   - FTP server (for testing remote backup storage)
+#
+# For production, remove or comment out the mongo and ftp services
+# and configure the environment variables to point to your existing services.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Main Application - MongoDB Backup Manager
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mongodb-backup-manager
+    ports:
+      - "5552:5552"
+    environment:
+      - PORT=5552
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+      # Authentication (CHANGE IN PRODUCTION!)
+      - ADMIN_USER=admin
+      - ADMIN_PASS=admin
+      - JWT_SECRET=change_this_jwt_secret_to_something_random_and_secure
+      # MongoDB connection
+      - MONGO_URL=mongodb://mongo:27017/testdb
+      # FTP settings
+      - FTP_HOST=ftp
+      - FTP_PORT=21
+      - FTP_USER=ftpuser
+      - FTP_PASSWORD=ftppass
+      - FTP_BASE_PATH=/backups
+      - FTP_ENABLED=true
+      # Backup settings
+      - KEEP_LOCAL_BACKUPS=true
+      - KEEP_LAST_N_BACKUPS=30
+      - RETENTION_DAYS=30
+      - BACKUP_CRON=0 2 * * *
+      # Security
+      - SETTINGS_ENCRYPTION_KEY=change_this_to_a_very_long_random_key_minimum_32_characters_long
+    volumes:
+      - backup-data:/app/data
+      - backup-logs:/app/logs
+    depends_on:
+      - mongo
+      - ftp
+    restart: unless-stopped
+    networks:
+      - backup-network
+
+  # ---------------------------------------------------------------------------
+  # MongoDB (Development/Testing Only)
+  # ---------------------------------------------------------------------------
+  # Remove this service in production and point MONGO_URL to your actual MongoDB
+  mongo:
+    image: mongo:7
+    container_name: mongodb-backup-test
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+    networks:
+      - backup-network
+
+  # ---------------------------------------------------------------------------
+  # FTP Server (Development/Testing Only)
+  # ---------------------------------------------------------------------------
+  # Remove this service in production and configure FTP_* vars for your FTP server
+  ftp:
+    image: fauria/vsftpd
+    container_name: ftp-backup-server
+    ports:
+      - "21:21"
+      - "21100-21110:21100-21110"
+    environment:
+      - FTP_USER=ftpuser
+      - FTP_PASS=ftppass
+      - PASV_ADDRESS=127.0.0.1
+      - PASV_MIN_PORT=21100
+      - PASV_MAX_PORT=21110
+    volumes:
+      - ftp-data:/home/vsftpd
+    restart: unless-stopped
+    networks:
+      - backup-network
+
+# -----------------------------------------------------------------------------
+# Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  backup-data:
+    name: mongodb-backup-data
+  backup-logs:
+    name: mongodb-backup-logs
+  mongo-data:
+    name: mongodb-backup-mongo
+  ftp-data:
+    name: mongodb-backup-ftp
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+networks:
+  backup-network:
+    name: mongodb-backup-network
+    driver: bridge

@@ -1,0 +1,27 @@
+[Unit]
+Description=MongoDB Backup Manager
+Documentation=https://github.com/yourusername/mongodb-backup-manager
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/mongodb-backup-manager
+EnvironmentFile=/opt/mongodb-backup-manager/.env
+ExecStart=/usr/bin/node /opt/mongodb-backup-manager/server/index.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mongodb-backup-manager
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/mongodb-backup-manager/data /opt/mongodb-backup-manager/logs
+
+[Install]
+WantedBy=multi-user.target
