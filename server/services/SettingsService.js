@@ -91,14 +91,30 @@ class SettingsService {
     return decrypted;
   }
 
+
+
+  /**
+   * Internal helper to apply env overrides
+   */
+  applyEnvOverrides(settings) {
+      if (process.env.MONGO_URL) settings.mongoUrl = process.env.MONGO_URL;
+      if (process.env.FTP_HOST) settings.ftpHost = process.env.FTP_HOST;
+      if (process.env.FTP_PORT) settings.ftpPort = parseInt(process.env.FTP_PORT);
+      if (process.env.FTP_USER) settings.ftpUser = process.env.FTP_USER;
+      if (process.env.FTP_PASSWORD) settings.ftpPassword = process.env.FTP_PASSWORD;
+      if (process.env.FTP_BASE_PATH) settings.ftpBasePath = process.env.FTP_BASE_PATH;
+      return settings;
+  }
+
   /**
    * Get all settings (decrypted)
    */
   async getAll() {
     try {
+      let settings = {};
+      
       if (this.useSqlite && this.db) {
         const rows = this.db.prepare('SELECT key, value FROM settings').all();
-        const settings = {};
         
         for (const row of rows) {
           try {
@@ -110,18 +126,16 @@ class SettingsService {
         
         // Decrypt sensitive fields
         if (settings.ftpPassword) {
-          settings.ftpPassword = this.decrypt(settings.ftpPassword);
+            settings.ftpPassword = this.decrypt(settings.ftpPassword);
         }
         if (settings.mongoUrl) {
-          settings.mongoUrl = this.decrypt(settings.mongoUrl);
+            settings.mongoUrl = this.decrypt(settings.mongoUrl);
         }
-        
-        return settings;
       } else {
         // JSON fallback
         try {
           const data = await fs.readFile(this.jsonPath, 'utf8');
-          const settings = JSON.parse(data);
+          settings = JSON.parse(data);
           
           // Decrypt sensitive fields
           if (settings.ftpPassword) {
@@ -130,12 +144,20 @@ class SettingsService {
           if (settings.mongoUrl) {
             settings.mongoUrl = this.decrypt(settings.mongoUrl);
           }
-          
-          return settings;
         } catch (error) {
-          return {};
+           // Ignore file not found
         }
       }
+
+      // Apply Environment Overrides (Both Paths)
+      if (process.env.MONGO_URL) settings.mongoUrl = process.env.MONGO_URL;
+      if (process.env.FTP_HOST) settings.ftpHost = process.env.FTP_HOST;
+      if (process.env.FTP_PORT) settings.ftpPort = parseInt(process.env.FTP_PORT);
+      if (process.env.FTP_USER) settings.ftpUser = process.env.FTP_USER;
+      if (process.env.FTP_PASSWORD) settings.ftpPassword = process.env.FTP_PASSWORD;
+      if (process.env.FTP_BASE_PATH) settings.ftpBasePath = process.env.FTP_BASE_PATH;
+
+      return settings;
     } catch (error) {
       console.error('Failed to get settings:', error);
       return this.defaultSettings;
