@@ -39,8 +39,6 @@ services:
       - BACKUP_CRON=0 2 * * *
       # Security
       - SETTINGS_ENCRYPTION_KEY=change_this_to_a_very_long_random_key_minimum_32_characters_long
-      # Force use host machine's MongoDB
-      - MONGO_URL=mongodb://host.docker.internal:27017
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

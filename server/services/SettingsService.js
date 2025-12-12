@@ -150,7 +150,9 @@ class SettingsService {
       }
 
       // Apply Environment Overrides (Both Paths)
-      if (process.env.MONGO_URL) settings.mongoUrl = process.env.MONGO_URL;
+      // NOTE: We do NOT override mongoUrl here blindly, because that strips credentials saved in the UI.
+      // Instead, we fix the hostname below if running in Docker.
+      
       if (process.env.FTP_HOST) settings.ftpHost = process.env.FTP_HOST;
       if (process.env.FTP_PORT) settings.ftpPort = parseInt(process.env.FTP_PORT);
       if (process.env.FTP_USER) settings.ftpUser = process.env.FTP_USER;
