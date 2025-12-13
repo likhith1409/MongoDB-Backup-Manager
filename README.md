@@ -2,7 +2,6 @@
 
 A production-ready, web-based MongoDB backup solution with scheduling, FTP upload, incremental backups, and point-in-time recovery capabilities.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg)
 ![MongoDB](https://img.shields.io/badge/mongodb-7.0-green.svg)
