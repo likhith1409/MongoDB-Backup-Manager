@@ -654,28 +654,108 @@ class BackupService {
   }
 
   /**
-   * Apply retention policy
+   * Apply retention policy - Smart version that protects backup chains
+   * 
+   * Key behaviors:
+   * 1. Always keeps at least one full backup (required for PITR)
+   * 2. Applies retention separately for full and incremental backups
+   * 3. Never deletes a full backup if incremental backups depend on it
+   * 4. Deletes orphaned incrementals (those without a valid full backup base)
    */
   async applyRetentionPolicy() {
     try {
       const settings = await SettingsService.getAll();
       const { keepLastNBackups, retentionDays } = settings;
       
-      // Get all backups ordered by timestamp
+      // Get all backups ordered by timestamp (newest first)
       const allBackups = this.db.prepare(
         'SELECT * FROM backups WHERE status = ? ORDER BY timestamp DESC'
       ).all('completed');
       
       const cutoffTime = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+      
+      // Separate full and incremental backups
+      const fullBackups = allBackups.filter(b => b.type === 'full');
+      const incrementalBackups = allBackups.filter(b => b.type === 'incremental');
+      
+      // Always keep at least 1 full backup for PITR functionality
+      const minFullBackupsToKeep = 1;
+      
+      // Calculate how many of each type to keep
+      // Use intelligent split: prioritize keeping full backups
+      const fullBackupsToKeep = Math.max(minFullBackupsToKeep, Math.min(fullBackups.length, Math.ceil(keepLastNBackups * 0.1))); // Keep ~10% of limit as full backups
+      const incrementalBackupsToKeep = Math.max(0, keepLastNBackups - fullBackupsToKeep);
+      
       const toDelete = [];
       
-      // Delete backups older than retention days or beyond keepLastNBackups
-      allBackups.forEach((backup, index) => {
-        if (index >= keepLastNBackups || backup.timestamp < cutoffTime) {
-          toDelete.push(backup);
+      // Find which full backups have dependent incrementals
+      const getLatestFullBackupBefore = (timestamp) => {
+        return fullBackups.find(f => f.timestamp < timestamp);
+      };
+      
+      const fullBackupsWithDependents = new Set();
+      incrementalBackups.forEach(inc => {
+        const baseFull = getLatestFullBackupBefore(inc.timestamp);
+        if (baseFull) {
+          fullBackupsWithDependents.add(baseFull.id);
         }
       });
       
+      // Process full backups - apply retention but protect those with dependents
+      fullBackups.forEach((backup, index) => {
+        // Always keep the latest full backup (index 0)
+        if (index === 0) {
+          return;
+        }
+        
+        // Check if this full backup should be deleted
+        const shouldDeleteByCount = index >= fullBackupsToKeep;
+        const shouldDeleteByAge = backup.timestamp < cutoffTime;
+        
+        if (shouldDeleteByCount || shouldDeleteByAge) {
+          // Only delete if no incrementals depend on this full backup
+          if (!fullBackupsWithDependents.has(backup.id)) {
+            toDelete.push(backup);
+          }
+        }
+      });
+      
+      // Process incremental backups - apply retention
+      incrementalBackups.forEach((backup, index) => {
+        // Check if this incremental should be deleted
+        const shouldDeleteByCount = index >= incrementalBackupsToKeep;
+        const shouldDeleteByAge = backup.timestamp < cutoffTime;
+        
+        if (shouldDeleteByCount || shouldDeleteByAge) {
+          toDelete.push(backup);
+          
+          // After marking for deletion, check if we should also delete its parent full backup
+          // (only if this was the last dependent incremental)
+          const baseFull = getLatestFullBackupBefore(backup.timestamp);
+          if (baseFull) {
+            const remainingDependents = incrementalBackups.filter(
+              inc => !toDelete.includes(inc) && getLatestFullBackupBefore(inc.timestamp)?.id === baseFull.id
+            );
+            
+            if (remainingDependents.length === 0) {
+              fullBackupsWithDependents.delete(baseFull.id);
+            }
+          }
+        }
+      });
+      
+      // Delete orphaned incrementals (those whose base full backup no longer exists)
+      const fullBackupIds = new Set(fullBackups.map(f => f.id));
+      incrementalBackups.forEach(inc => {
+        const baseFull = getLatestFullBackupBefore(inc.timestamp);
+        if (!baseFull || !fullBackupIds.has(baseFull.id)) {
+          if (!toDelete.includes(inc)) {
+            toDelete.push(inc);
+          }
+        }
+      });
+      
+      // Execute deletions
       for (const backup of toDelete) {
         await this.deleteBackup(backup.id);
       }
@@ -687,6 +767,7 @@ class BackupService {
       await LogService.log('error', `Failed to apply retention policy: ${error.message}`);
     }
   }
+
 
   /**
    * Delete a backup (local and FTP)

@@ -426,14 +426,25 @@ mongosh --eval "rs.initiate()"`}
                     <Card title="Storage Configuration">
                         <div className="space-y-6">
                             <div className="flex gap-2 bg-gray-100 rounded-xl p-1.5 overflow-x-auto">
-                                {['local', 'ftp', 's3'].map((type) => (
+                                {['local', 'ftp', 's3', 'rclone'].map((type) => (
                                     <button
                                         key={type}
                                         type="button"
-                                        onClick={() => setStorageType(type)}
-                                        className={`flex-1 min-w-[100px] px-3 sm:px-4 py-2 sm:py-3 rounded-lg font-semibold transition-all text-sm sm:text-base whitespace-nowrap ${storageType === type ? 'bg-white text-gray-900 shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
+                                        onClick={() => type !== 'rclone' && setStorageType(type)}
+                                        disabled={type === 'rclone'}
+                                        className={`flex-1 min-w-[100px] px-3 sm:px-4 py-2 sm:py-3 rounded-lg font-semibold transition-all text-sm sm:text-base whitespace-nowrap relative ${type === 'rclone'
+                                                ? 'text-gray-400 cursor-not-allowed bg-gray-50'
+                                                : storageType === type
+                                                    ? 'bg-white text-gray-900 shadow-md'
+                                                    : 'text-gray-600 hover:bg-gray-50'
+                                            }`}
                                     >
-                                        {type === 'local' ? '📁 Local Only' : type === 'ftp' ? '🖥️ FTP Server' : '☁️ AWS S3'}
+                                        {type === 'local' ? '📁 Local Only' : type === 'ftp' ? '🖥️ FTP Server' : type === 's3' ? '☁️ AWS S3' : '🔄 rclone'}
+                                        {type === 'rclone' && (
+                                            <span className="absolute -top-2 -right-1 px-1.5 py-0.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[10px] font-bold rounded-full shadow-sm animate-pulse">
+                                                SOON
+                                            </span>
+                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -509,6 +520,46 @@ mongosh --eval "rs.initiate()"`}
                                     {s3TestResult && <ConnectionStatus testResult={s3TestResult} />}
                                 </div>
                             )}
+
+                            {/* rclone Coming Soon Notice */}
+                            <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-5 border-2 border-amber-200">
+                                <div className="flex items-start gap-4">
+                                    <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
+                                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <h4 className="font-bold text-gray-900">🔄 rclone Integration</h4>
+                                            <span className="px-2 py-0.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-xs font-bold rounded-full">
+                                                Coming Soon
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-gray-600 mb-3">
+                                            We're working on rclone support to enable backups to <strong>70+ cloud storage providers</strong> including
+                                            Google Drive, Dropbox, OneDrive, Backblaze B2, Wasabi, and many more!
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                            <span className="px-2 py-1 bg-white text-gray-600 text-xs font-medium rounded-lg border border-gray-200">
+                                                📦 Google Drive
+                                            </span>
+                                            <span className="px-2 py-1 bg-white text-gray-600 text-xs font-medium rounded-lg border border-gray-200">
+                                                📦 Dropbox
+                                            </span>
+                                            <span className="px-2 py-1 bg-white text-gray-600 text-xs font-medium rounded-lg border border-gray-200">
+                                                📦 OneDrive
+                                            </span>
+                                            <span className="px-2 py-1 bg-white text-gray-600 text-xs font-medium rounded-lg border border-gray-200">
+                                                📦 Backblaze B2
+                                            </span>
+                                            <span className="px-2 py-1 bg-white text-gray-500 text-xs font-medium rounded-lg border border-gray-200">
+                                                + 70 more...
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </Card>
 

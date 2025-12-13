@@ -20,8 +20,11 @@ RUN npm run build
 # Stage 2: Final image
 FROM node:18-alpine
 
-# Install mongodump (MongoDB tools)
-RUN apk add --no-cache mongodb-tools
+# Install mongodump (MongoDB tools) and timezone data
+RUN apk add --no-cache mongodb-tools tzdata
+
+# Set default timezone (can be overridden by TZ environment variable)
+ENV TZ=Asia/Kolkata
 
 WORKDIR /app
 

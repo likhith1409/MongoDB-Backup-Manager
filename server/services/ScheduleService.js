@@ -68,12 +68,12 @@ class ScheduleService {
       }
       
       // Create full backup cron job with scheduled: true to auto-start
+      // Note: Timezone is handled by system TZ environment variable
       this.fullBackupJob = cron.schedule(fullCron, async () => {
         console.log('[ScheduleService] Full backup cron triggered');
         await this.executeScheduledBackup('full');
       }, {
-        scheduled: true,
-        timezone: "Asia/Kolkata" // Use local timezone
+        scheduled: true
       });
       
       // Create incremental backup cron job with scheduled: true to auto-start
@@ -90,8 +90,7 @@ class ScheduleService {
           await LogService.log('warning', 'Skipping incremental backup - no full backup exists yet');
         }
       }, {
-        scheduled: true,
-        timezone: "Asia/Kolkata" // Use local timezone
+        scheduled: true
       });
       
       // Explicitly start the jobs
@@ -193,33 +192,122 @@ class ScheduleService {
 
   /**
    * Get next run time for a cron expression
-   * Returns ISO string
+   * Returns object with ISO string and formatted times
    */
   getNextRunTime(cronExpression) {
     try {
-      const cronParser = require('cron-parser');
-      const interval = cronParser.parseExpression(cronExpression);
-      return interval.next().toISOString();
+      const { CronExpressionParser } = require('cron-parser');
+      const interval = CronExpressionParser.parse(cronExpression);
+      const nextDate = interval.next().toDate();
+      
+      return {
+        iso: nextDate.toISOString(),
+        utc: nextDate.toUTCString(),
+        local: nextDate.toLocaleString(),
+        timestamp: nextDate.getTime()
+      };
     } catch {
       // Fallback: estimate next run
-      return new Date(Date.now() + 60000).toISOString();
+      const fallback = new Date(Date.now() + 60000);
+      return {
+        iso: fallback.toISOString(),
+        utc: fallback.toUTCString(),
+        local: fallback.toLocaleString(),
+        timestamp: fallback.getTime()
+      };
     }
   }
 
   /**
-   * Get current schedule status
+   * Get human-readable description of a cron schedule
+   */
+  getCronDescription(cronExpression) {
+    const presets = {
+      '* * * * *': 'Every Minute',
+      '*/5 * * * *': 'Every 5 Minutes',
+      '*/15 * * * *': 'Every 15 Minutes',
+      '*/30 * * * *': 'Every 30 Minutes',
+      '0 * * * *': 'Hourly',
+      '0 0 * * *': 'Daily at Midnight',
+      '0 2 * * *': 'Daily at 2:00 AM',
+      '0 0 * * 0': 'Weekly (Sunday at Midnight)',
+      '0 2 * * 0': 'Weekly (Sunday at 2:00 AM)'
+    };
+    
+    return presets[cronExpression] || cronExpression;
+  }
+
+  /**
+   * Get current schedule status with timezone information
    */
   async getStatus() {
     const settings = await SettingsService.getAll();
     const fullCron = settings.fullBackupCron || '0 2 * * *';
     const incrementalCron = settings.incrementalBackupCron || '*/15 * * * *';
     
+    // Get server timezone
+    let serverTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    
+    // Normalize legacy timezone names to modern names
+    const timezoneAliases = {
+      'Asia/Calcutta': 'Asia/Kolkata',
+      'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+      'Asia/Katmandu': 'Asia/Kathmandu',
+      'Asia/Rangoon': 'Asia/Yangon',
+      'Pacific/Ponape': 'Pacific/Pohnpei',
+      'Pacific/Truk': 'Pacific/Chuuk',
+      'America/Buenos_Aires': 'America/Argentina/Buenos_Aires'
+    };
+    serverTimezone = timezoneAliases[serverTimezone] || serverTimezone;
+    
+    // Get timezone abbreviation (e.g., IST, PST, EST)
+    const timezoneAbbreviations = {
+      'Asia/Kolkata': 'IST',
+      'Asia/Tokyo': 'JST',
+      'Asia/Shanghai': 'CST',
+      'Asia/Singapore': 'SGT',
+      'Asia/Dubai': 'GST',
+      'Europe/London': 'GMT',
+      'Europe/Paris': 'CET',
+      'Europe/Berlin': 'CET',
+      'America/New_York': 'EST',
+      'America/Chicago': 'CST',
+      'America/Denver': 'MST',
+      'America/Los_Angeles': 'PST',
+      'Australia/Sydney': 'AEST',
+      'Pacific/Auckland': 'NZST',
+      'UTC': 'UTC'
+    };
+    const timezoneAbbr = timezoneAbbreviations[serverTimezone] || null;
+    
+    const serverOffset = new Date().getTimezoneOffset(); // e.g., -330 for IST (UTC+5:30)
+    // Note: getTimezoneOffset returns negative for east of UTC, positive for west
+    // IST is UTC+5:30, so getTimezoneOffset returns -330
+    const offsetHours = Math.floor(Math.abs(serverOffset) / 60); // Use abs BEFORE division to avoid Math.floor rounding issues
+    const offsetMinutes = Math.abs(serverOffset) % 60;
+    const offsetSign = serverOffset <= 0 ? '+' : '-';
+    const offsetString = `UTC${offsetSign}${offsetHours.toString().padStart(2, '0')}:${offsetMinutes.toString().padStart(2, '0')}`;
+    
+    // Calculate next run times
+    const nextFullRun = this.isRunning ? this.getNextRunTime(fullCron) : null;
+    const nextIncrementalRun = this.isRunning ? this.getNextRunTime(incrementalCron) : null;
+    
     return {
       enabled: this.isRunning,
       cronExpression: fullCron, // Legacy support
       fullBackupCron: fullCron,
       incrementalBackupCron: incrementalCron,
-      nextRun: this.isRunning ? this.getNextRunTime(incrementalCron) : null
+      fullBackupDescription: this.getCronDescription(fullCron),
+      incrementalBackupDescription: this.getCronDescription(incrementalCron),
+      timezone: {
+        name: serverTimezone,
+        abbreviation: timezoneAbbr, // e.g., 'IST' for India
+        offset: offsetString,
+        offsetMinutes: -serverOffset // Positive for east of UTC
+      },
+      nextRun: nextIncrementalRun?.iso || null, // Legacy - next incremental as it's more frequent
+      nextFullBackup: nextFullRun,
+      nextIncrementalBackup: nextIncrementalRun
     };
   }
 

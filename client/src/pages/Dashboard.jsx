@@ -45,6 +45,14 @@ const Dashboard = () => {
     const [showScheduleConfirm, setShowScheduleConfirm] = useState(false);
     const [scheduleLoading, setScheduleLoading] = useState(false);
 
+    // Delete confirmation modal state
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deleteBackupData, setDeleteBackupData] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+
+    // Date filter state for backup history
+    const [dateFilter, setDateFilter] = useState('all'); // 'all', 'today', 'yesterday', or 'YYYY-MM-DD'
+
     const fetchStatus = async () => {
         try {
             const response = await api.get('/backup/status');
@@ -238,13 +246,21 @@ const Dashboard = () => {
         }
     };
 
-    const deleteBackup = async (backupId) => {
-        if (!window.confirm('Are you sure you want to delete this backup?')) {
-            return;
+    const handleDeleteClick = (backupId) => {
+        const backup = backups.find(b => b.id === backupId);
+        if (backup) {
+            setDeleteBackupData(backup);
+            setShowDeleteConfirm(true);
         }
+    };
+
+    const executeDelete = async () => {
+        if (!deleteBackupData) return;
+
+        setDeleting(true);
 
         try {
-            const response = await api.delete(`/backups/${backupId}`);
+            const response = await api.delete(`/backups/${deleteBackupData.id}`);
 
             if (response.data.success) {
                 setToast({
@@ -258,6 +274,17 @@ const Dashboard = () => {
                 message: 'Failed to delete backup',
                 type: 'error'
             });
+        } finally {
+            setDeleting(false);
+            setShowDeleteConfirm(false);
+            setDeleteBackupData(null);
+        }
+    };
+
+    const closeDeleteModal = () => {
+        if (!deleting) {
+            setShowDeleteConfirm(false);
+            setDeleteBackupData(null);
         }
     };
 
@@ -344,11 +371,62 @@ const Dashboard = () => {
         }
     };
 
-    // Pagination helpers
-    const totalPages = Math.ceil(backups.length / itemsPerPage);
+    // Date filter helper - get available dates from backups
+    const getAvailableDates = () => {
+        const dates = new Set();
+        backups.forEach(backup => {
+            if (backup.timestamp) {
+                const date = new Date(backup.timestamp).toISOString().split('T')[0];
+                dates.add(date);
+            }
+        });
+        return Array.from(dates).sort().reverse(); // Most recent first
+    };
+
+    // Filter backups by date
+    const getFilteredBackups = () => {
+        if (dateFilter === 'all') {
+            return backups;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        let filterDate;
+        if (dateFilter === 'today') {
+            filterDate = today;
+        } else if (dateFilter === 'yesterday') {
+            filterDate = yesterday;
+        } else {
+            // Specific date in YYYY-MM-DD format
+            filterDate = new Date(dateFilter);
+            filterDate.setHours(0, 0, 0, 0);
+        }
+
+        const nextDay = new Date(filterDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+
+        return backups.filter(backup => {
+            const backupDate = new Date(backup.timestamp);
+            return backupDate >= filterDate && backupDate < nextDay;
+        });
+    };
+
+    // Pagination helpers - now uses filtered backups
+    const filteredBackups = getFilteredBackups();
+    const totalPages = Math.ceil(filteredBackups.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const currentBackups = backups.slice(startIndex, endIndex);
+    const currentBackups = filteredBackups.slice(startIndex, endIndex);
+
+    // Reset to page 1 when filter changes
+    const handleDateFilterChange = (newFilter) => {
+        setDateFilter(newFilter);
+        setCurrentPage(1);
+    };
 
     const goToPage = (page) => {
         if (page >= 1 && page <= totalPages) {
@@ -572,15 +650,22 @@ const Dashboard = () => {
                     status?.schedule && (
                         <Card title="📅 Backup Schedule" className="mb-8">
                             <div className="space-y-4">
-                                {/* Schedule Status Header */}
-                                <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl p-4 border border-gray-200">
+                                {/* Schedule Status Header with Timezone */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl p-4 border border-gray-200">
                                     <div className="flex items-center gap-3">
                                         <div className={`w-3 h-3 rounded-full ${status.schedule.enabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                                         <span className="font-semibold text-gray-900">
                                             Schedule {status.schedule.enabled ? 'Active' : 'Disabled'}
                                         </span>
                                     </div>
-                                    <StatusBadge status={status.schedule.enabled ? 'enabled' : 'disabled'} />
+                                    <div className="flex items-center gap-2">
+                                        {status.schedule.timezone && (
+                                            <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                                                🌍 {status.schedule.timezone.name} ({status.schedule.timezone.abbreviation || status.schedule.timezone.offset})
+                                            </span>
+                                        )}
+                                        <StatusBadge status={status.schedule.enabled ? 'enabled' : 'disabled'} />
+                                    </div>
                                 </div>
 
                                 {/* Dual Schedule Display */}
@@ -601,14 +686,18 @@ const Dashboard = () => {
                                         <div className="bg-white rounded-lg p-3 border border-purple-100">
                                             <p className="text-sm text-gray-500 mb-1">Schedule:</p>
                                             <p className="text-lg font-bold text-purple-700">
-                                                {status.schedule.fullBackupCron
-                                                    ? (status.schedule.fullBackupCron === '0 2 * * *' ? 'Daily at 2:00 AM'
-                                                        : status.schedule.fullBackupCron === '0 0 * * *' ? 'Daily at Midnight'
-                                                            : status.schedule.fullBackupCron)
-                                                    : status.schedule.cronExpression || 'Not configured'}
+                                                {status.schedule.fullBackupDescription || status.schedule.fullBackupCron || 'Not configured'}
                                             </p>
-                                            {status.schedule.fullBackupCron && (
+                                            <div className="flex items-center gap-2 mt-1">
                                                 <code className="text-xs text-gray-400 font-mono">{status.schedule.fullBackupCron}</code>
+                                                {status.schedule.timezone && (
+                                                    <span className="text-xs text-gray-400">({status.schedule.timezone.abbreviation || status.schedule.timezone.offset})</span>
+                                                )}
+                                            </div>
+                                            {status.schedule.nextFullBackup && status.schedule.enabled && (
+                                                <p className="text-xs text-purple-600 mt-2">
+                                                    Next: {new Date(status.schedule.nextFullBackup.iso).toLocaleString()}
+                                                </p>
                                             )}
                                         </div>
                                     </div>
@@ -629,31 +718,39 @@ const Dashboard = () => {
                                         <div className="bg-white rounded-lg p-3 border border-green-100">
                                             <p className="text-sm text-gray-500 mb-1">Schedule:</p>
                                             <p className="text-lg font-bold text-green-700">
-                                                {status.schedule.incrementalBackupCron
-                                                    ? (status.schedule.incrementalBackupCron === '*/5 * * * *' ? 'Every 5 Minutes'
-                                                        : status.schedule.incrementalBackupCron === '*/15 * * * *' ? 'Every 15 Minutes'
-                                                            : status.schedule.incrementalBackupCron === '* * * * *' ? 'Every 1 Minute'
-                                                                : status.schedule.incrementalBackupCron)
-                                                    : status.schedule.cronExpression || 'Not configured'}
+                                                {status.schedule.incrementalBackupDescription || status.schedule.incrementalBackupCron || 'Not configured'}
                                             </p>
-                                            {status.schedule.incrementalBackupCron && (
+                                            <div className="flex items-center gap-2 mt-1">
                                                 <code className="text-xs text-gray-400 font-mono">{status.schedule.incrementalBackupCron}</code>
+                                                {status.schedule.timezone && (
+                                                    <span className="text-xs text-gray-400">({status.schedule.timezone.abbreviation || status.schedule.timezone.offset})</span>
+                                                )}
+                                            </div>
+                                            {status.schedule.nextIncrementalBackup && status.schedule.enabled && (
+                                                <p className="text-xs text-green-600 mt-2">
+                                                    Next: {new Date(status.schedule.nextIncrementalBackup.iso).toLocaleString()}
+                                                </p>
                                             )}
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Next Run Info */}
+                                {/* Next Run Info - Enhanced */}
                                 {status.schedule.nextRun && (
                                     <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200">
                                         <div className="flex items-center gap-3">
                                             <svg className="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
-                                            <div>
+                                            <div className="flex-1">
                                                 <p className="text-sm text-gray-600">Next scheduled backup:</p>
                                                 <p className="font-bold text-amber-700">{formatDate(status.schedule.nextRun)}</p>
                                             </div>
+                                            {status.schedule.timezone && (
+                                                <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">
+                                                    {status.schedule.timezone.abbreviation || status.schedule.timezone.offset}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -663,9 +760,68 @@ const Dashboard = () => {
                 }
 
                 {/* Backup History */}
-                <div className="mb-4">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Backup History</h2>
-                    <p className="text-gray-600">All your stored backups</p>
+                <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900 mb-1">Backup History</h2>
+                        <p className="text-gray-600 text-sm">
+                            {dateFilter === 'all'
+                                ? `All ${backups.length} backups`
+                                : `${filteredBackups.length} backup${filteredBackups.length !== 1 ? 's' : ''} for ${dateFilter === 'today' ? 'today' : dateFilter === 'yesterday' ? 'yesterday' : new Date(dateFilter).toLocaleDateString()}`
+                            }
+                        </p>
+                    </div>
+
+                    {/* Date Filter */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm text-gray-500">Filter by date:</span>
+                        <div className="flex flex-wrap gap-1">
+                            <button
+                                onClick={() => handleDateFilterChange('all')}
+                                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all ${dateFilter === 'all'
+                                    ? 'bg-emerald-500 text-white shadow-md'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                            >
+                                All
+                            </button>
+                            <button
+                                onClick={() => handleDateFilterChange('today')}
+                                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all ${dateFilter === 'today'
+                                    ? 'bg-emerald-500 text-white shadow-md'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                            >
+                                Today
+                            </button>
+                            <button
+                                onClick={() => handleDateFilterChange('yesterday')}
+                                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all ${dateFilter === 'yesterday'
+                                    ? 'bg-emerald-500 text-white shadow-md'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                            >
+                                Yesterday
+                            </button>
+
+                            {/* Date Picker Dropdown */}
+                            <select
+                                value={dateFilter}
+                                onChange={(e) => handleDateFilterChange(e.target.value)}
+                                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-white border border-gray-200 text-gray-600 hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                            >
+                                <option value="all">Select Date</option>
+                                {getAvailableDates().map(date => (
+                                    <option key={date} value={date}>
+                                        {new Date(date + 'T00:00:00').toLocaleDateString(undefined, {
+                                            weekday: 'short',
+                                            month: 'short',
+                                            day: 'numeric'
+                                        })}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 {
@@ -681,8 +837,8 @@ const Dashboard = () => {
                         </Card>
                     ) : (
                         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-                            {/* Table */}
-                            <div className="overflow-x-auto">
+                            {/* Desktop Table - Hidden on mobile */}
+                            <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full">
                                     <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                                         <tr>
@@ -779,7 +935,7 @@ const Dashboard = () => {
                                                             </svg>
                                                         </button>
                                                         <button
-                                                            onClick={() => deleteBackup(backup.id)}
+                                                            onClick={() => handleDeleteClick(backup.id)}
                                                             className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors duration-200"
                                                             title="Delete"
                                                         >
@@ -793,6 +949,102 @@ const Dashboard = () => {
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+
+                            {/* Mobile Card View - Shown only on mobile */}
+                            <div className="md:hidden divide-y divide-gray-100">
+                                {currentBackups.map((backup) => (
+                                    <div key={backup.id} className="p-4 hover:bg-gray-50 transition-colors">
+                                        {/* Header Row: Type, Status, Storage */}
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold text-white shadow-sm ${backup.type === 'full'
+                                                    ? 'bg-gradient-to-r from-purple-500 to-indigo-500'
+                                                    : 'bg-gradient-to-r from-blue-500 to-cyan-500'
+                                                    }`}>
+                                                    {backup.type}
+                                                </span>
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold text-white shadow-sm ${backup.status === 'completed'
+                                                    ? 'bg-gradient-to-r from-green-500 to-emerald-500'
+                                                    : backup.status === 'failed'
+                                                        ? 'bg-gradient-to-r from-red-500 to-rose-500'
+                                                        : backup.status === 'running'
+                                                            ? 'bg-gradient-to-r from-blue-500 to-cyan-500'
+                                                            : 'bg-gradient-to-r from-gray-400 to-gray-500'
+                                                    }`}>
+                                                    {backup.status}
+                                                </span>
+                                            </div>
+                                            {backup.ftp_path ? (
+                                                <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                                    FTP
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
+                                                    Local
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Details Row */}
+                                        <div className="space-y-1.5 mb-3">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <span className="text-gray-500">Size:</span>
+                                                <span className="font-semibold text-gray-900">{formatBytes(backup.size)}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-sm">
+                                                <span className="text-gray-500">Date:</span>
+                                                <span className="text-gray-700">{formatDate(backup.timestamp)}</span>
+                                            </div>
+                                            <div className="text-xs text-gray-500 font-mono bg-gray-50 px-2 py-1 rounded truncate">
+                                                {backup.id}
+                                            </div>
+                                        </div>
+
+                                        {/* Action Buttons - Touch-friendly */}
+                                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                                            {(backup.local_path || backup.ftp_path) && (
+                                                <button
+                                                    onClick={() => downloadBackup(backup.id)}
+                                                    className="flex-1 flex items-center justify-center gap-1 py-2 px-3 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg transition-colors text-sm font-medium"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                    </svg>
+                                                    <span className="hidden xs:inline">Download</span>
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => handleInspect(backup.id)}
+                                                className="flex-1 flex items-center justify-center gap-1 py-2 px-3 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors text-sm font-medium"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                                <span className="hidden xs:inline">Inspect</span>
+                                            </button>
+                                            <button
+                                                onClick={() => restoreBackup(backup.id)}
+                                                className="flex-1 flex items-center justify-center gap-1 py-2 px-3 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors text-sm font-medium"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                </svg>
+                                                <span className="hidden xs:inline">Restore</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteClick(backup.id)}
+                                                className="flex-1 flex items-center justify-center gap-1 py-2 px-3 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors text-sm font-medium"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                                <span className="hidden xs:inline">Delete</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
 
                             {/* Pagination */}
@@ -1176,6 +1428,98 @@ const Dashboard = () => {
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                         </svg>
                                         Start Schedule
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && deleteBackupData && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleIn">
+                        {/* Header with danger gradient */}
+                        <div className="bg-gradient-to-r from-red-500 to-rose-600 px-6 py-5">
+                            <div className="flex items-center gap-4">
+                                <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur">
+                                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-white">Delete Backup</h3>
+                                    <p className="text-red-100 text-sm">This action cannot be undone</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6">
+                            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 mb-4">
+                                <div className="flex items-start gap-3">
+                                    <svg className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                    <div>
+                                        <p className="text-sm text-red-800 font-semibold mb-1">Warning</p>
+                                        <p className="text-sm text-red-700">You are about to permanently delete this backup. This will remove the backup file and all associated data.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Backup ID:</span>
+                                    <code className="text-gray-900 font-mono text-xs bg-white px-2 py-0.5 rounded">{deleteBackupData.id}</code>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Type:</span>
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold text-white ${deleteBackupData.type === 'full'
+                                            ? 'bg-gradient-to-r from-purple-500 to-indigo-500'
+                                            : 'bg-gradient-to-r from-blue-500 to-cyan-500'
+                                        }`}>{deleteBackupData.type}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Size:</span>
+                                    <span className="font-semibold text-gray-900">{formatBytes(deleteBackupData.size)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Created:</span>
+                                    <span className="text-gray-900">{formatDate(deleteBackupData.timestamp)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-6 py-4 bg-gray-50 border-t flex gap-3 justify-end">
+                            <button
+                                onClick={closeDeleteModal}
+                                disabled={deleting}
+                                className="px-5 py-2.5 text-gray-700 bg-white border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all font-medium disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={executeDelete}
+                                disabled={deleting}
+                                className="px-5 py-2.5 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-xl hover:from-red-600 hover:to-rose-700 transition-all font-medium flex items-center gap-2 shadow-lg disabled:opacity-70"
+                            >
+                                {deleting ? (
+                                    <>
+                                        <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                        </svg>
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                        Delete Backup
                                     </>
                                 )}
                             </button>

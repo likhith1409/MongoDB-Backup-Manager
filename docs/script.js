@@ -138,29 +138,8 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
 });
 
 // ============= Intersection Observer for Animations =============
-const observerOptions = {
-    root: null,
-    rootMargin: '0px',
-    threshold: 0.1
-};
-
-const animateOnScroll = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting) {
-            entry.target.style.opacity = '1';
-            entry.target.style.transform = 'translateY(0)';
-            animateOnScroll.unobserve(entry.target);
-        }
-    });
-}, observerOptions);
-
-// Observe animatable elements
-document.querySelectorAll('.feature-card, .api-card, .step').forEach((el, index) => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(24px)';
-    el.style.transition = `opacity 0.5s ease ${index * 0.05}s, transform 0.5s ease ${index * 0.05}s`;
-    animateOnScroll.observe(el);
-});
+// Scroll-based animations have been disabled for better UX
+// Elements now appear immediately without the scroll animation effect
 
 // ============= Active Navigation Highlight =============
 const sections = document.querySelectorAll('section[id]');
