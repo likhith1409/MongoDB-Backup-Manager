@@ -7,6 +7,18 @@ A production-ready, web-based MongoDB backup solution with scheduling, FTP uploa
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg)
 ![MongoDB](https://img.shields.io/badge/mongodb-7.0-green.svg)
 
+## Project Status
+
+This project is actively developed and has been tested in real-world self-hosted MongoDB environments.
+
+While core features such as full backups, incremental backups, scheduling, and restore workflows are stable, users are encouraged to test the setup in a non-production environment before relying on it for critical data.
+
+Contributions, testing feedback, and issue reports are welcome.
+
+> ⚠️ **Important**: For incremental backups to work, your MongoDB server **must** be configured as a Replica Set (even a single-node replica set). This is required to access the MongoDB `oplog` for tracking changes. Without this, incremental backups will fail.
+
+---
+
 ## Features
 
 **Backup Management**
@@ -36,9 +48,6 @@ A production-ready, web-based MongoDB backup solution with scheduling, FTP uploa
 - Log viewing and filtering
 - Backup inspection and verification
 
-> ⚠️ **Important**: For incremental backups to work, your MongoDB server **must** be configured as a Replica Set (even a single-node replica set). This is required to access the MongoDB `oplog` for tracking changes. Without this, incremental backups will fail.
-
----
 
 ## Screenshots
 
